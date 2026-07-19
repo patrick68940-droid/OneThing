@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no"/>
+<meta name="theme-color" content="#100B0E"/>
+<meta name="apple-mobile-web-app-capable" content="yes"/>
+<meta name="mobile-web-app-capable" content="yes"/>
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"/>
+<meta name="apple-mobile-web-app-title" content="FlowFocus"/>
+<title>FlowFocus</title>
+<style>
+  :root{
+    --bg:#100B0E; --bgDeep:#0A0709;
+    --ink:#F5EDE8; --muted:#93888C; --faint:#6A6064;
+    --amberA:#ED3A56; --amberB:#FF9539;
+    --amber:linear-gradient(135deg,#ED3A56,#FF9539);
+    /* darker, near-opaque card surfaces */
+    --card:linear-gradient(160deg,#241A1E,#191115);
+    --cardEdge:rgba(255,255,255,.08);
+    --radius:26px;
+    --safe-b:env(safe-area-inset-bottom,0px);
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;height:100%;}
+  body{
+    background:#000;color:var(--ink);overflow:hidden;
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,system-ui,sans-serif;
+  }
+  #cbg{position:fixed;inset:0;width:100%;height:100%;z-index:0;display:block;pointer-events:none;}
+  #app{
+    position:fixed;inset:0;z-index:1;
+    width:100%;max-width:520px;margin:0 auto;
+    display:flex;flex-direction:column;overflow:hidden;
+    padding-top:env(safe-area-inset-top,0px);
+  }
+
+  .header{padding:20px 22px 10px;flex:0 0 auto;}
+  .header .sub{font-size:12.5px;font-weight:600;color:var(--muted);letter-spacing:.2px;}
+  .header .title{font-size:30px;font-weight:800;letter-spacing:-.5px;margin-top:2px;}
+
+  /* ---- card surface ---- */
+  .card{
+    background:var(--card);
+    border:1px solid var(--cardEdge);
+    box-shadow:0 18px 40px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.05);
+    border-radius:var(--radius);
+  }
+
+  /* ---- FOCUS deck ---- */
+  #focusStack{flex:1 1 auto;position:relative;touch-action:none;overflow:hidden;margin-bottom:calc(88px + var(--safe-b));}
+  .scard{
+    position:absolute;left:22px;right:22px;top:50%;
+    height:clamp(300px,52vh,440px);
+    padding:22px;display:flex;flex-direction:column;
+    transform-origin:center center;
+    transition:transform .42s cubic-bezier(.2,.85,.25,1),opacity .42s ease,filter .42s ease;
+    will-change:transform,opacity;cursor:grab;overflow:hidden;
+  }
+  .scard:active{cursor:grabbing;}
+
+  .cardTop{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;flex:0 0 auto;}
+  .tag{font-size:11px;font-weight:800;padding:5px 10px;border-radius:999px;}
+  .tag.focus{color:var(--muted);background:rgba(255,255,255,.05);}
+  .tag.done{color:var(--amberB);background:rgba(255,149,57,.15);}
+  .xbtn{width:30px;height:30px;border-radius:50%;border:none;cursor:pointer;flex:0 0 auto;
+    background:rgba(255,255,255,.06);color:var(--faint);font-size:13px;font-weight:800;display:grid;place-items:center;}
+  .xbtn:active{color:var(--ink);}
+
+  .ctitle{font-weight:800;color:var(--ink);line-height:1.15;}
+  .cnotes{color:var(--muted);}
+  .scard .ctitle{font-size:26px;margin-top:14px;}
+  .scard .cnotes{font-size:15px;margin-top:10px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;}
+  .done .ctitle{text-decoration:line-through;text-decoration-color:var(--faint);color:var(--muted);}
+  .grow{flex:1 1 auto;min-height:8px;}
+
+  .doneBtn{
+    flex:0 0 auto;align-self:center;border:none;cursor:pointer;border-radius:20px;
+    height:44px;padding:0 18px;font-size:15px;font-weight:800;color:#fff;background:var(--amber);
+    box-shadow:0 6px 16px rgba(237,58,86,.4);display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  }
+  .doneBtn.reopen{background:rgba(255,255,255,.07);color:var(--muted);box-shadow:none;}
+  .doneBtn svg{width:16px;height:16px;stroke:#fff;stroke-width:3;fill:none;}
+
+  /* board */
+  #boardList{flex:1 1 auto;overflow-y:auto;padding:4px 18px calc(120px + var(--safe-b));}
+  #boardList::-webkit-scrollbar{display:none;}
+  .bcard{padding:16px;margin-bottom:14px;position:relative;overflow:hidden;}
+  .bcard .ctitle{font-size:17px;margin-top:10px;}
+  .bcard .cnotes{font-size:13px;margin-top:8px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
+  .bcard .doneBtn{margin-top:12px;}
+  .isDone{opacity:.55;}
+
+  .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding-bottom:140px;text-align:center;}
+  .empty .spark{font-size:34px;color:var(--amberB);}
+  .empty .big{font-size:18px;font-weight:800;}
+  .empty .hint{font-size:14px;color:var(--muted);}
+
+  /* ---- floating glass tab bar ---- */
+  #tabbar{position:fixed;left:0;right:0;bottom:calc(14px + var(--safe-b));z-index:6;
+    display:flex;align-items:center;justify-content:center;gap:10px;padding:0 18px;
+    max-width:520px;margin:0 auto;}
+  .tabs{display:flex;gap:6px;padding:6px;border-radius:26px;
+    background:rgba(28,20,24,.6);backdrop-filter:blur(22px) saturate(160%);-webkit-backdrop-filter:blur(22px) saturate(160%);
+    border:1px solid rgba(255,255,255,.1);}
+  .tab{display:flex;align-items:center;gap:7px;height:44px;padding:0 18px;border:none;background:transparent;
+    color:var(--muted);font-size:15px;font-weight:800;border-radius:20px;cursor:pointer;}
+  .tab.on{color:#fff;background:var(--amber);box-shadow:0 6px 16px rgba(237,58,86,.4);}
+  .tab svg{width:16px;height:16px;}
+  .addbtn{width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;background:var(--amber);color:#fff;
+    font-size:26px;font-weight:300;box-shadow:0 8px 20px rgba(237,58,86,.5);display:grid;place-items:center;line-height:1;}
+
+  /* ---- Done: slow strike-through across the task ---- */
+  .ctitle.striking{position:relative;}
+  .ctitle.striking::after{content:"";position:absolute;left:-2px;right:-2px;top:53%;height:3px;border-radius:2px;
+    background:var(--amberB);box-shadow:0 0 10px rgba(255,149,57,.6);
+    transform:scaleX(0);transform-origin:left center;animation:strike .85s cubic-bezier(.4,0,.2,1) forwards;}
+  @keyframes strike{to{transform:scaleX(1)}}
+
+  /* ---- big detail card (almost full-screen) ---- */
+  .overlay{position:fixed;inset:0;z-index:20;display:none;}
+  .overlay.show{display:block;}
+  #detailScrim{position:absolute;inset:0;background:rgba(6,4,5,.55);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);}
+  .bigwrap{position:absolute;inset:0;max-width:520px;margin:0 auto;display:flex;align-items:center;justify-content:center;padding:28px;perspective:1400px;}
+  .bigcard{position:relative;width:100%;max-height:min(64vh,520px);border-radius:28px;padding:20px;display:flex;flex-direction:column;overflow:hidden;
+    transform-origin:center;animation:flipIn .44s cubic-bezier(.2,.85,.25,1);}
+  @keyframes flipIn{from{transform:perspective(1200px) rotateX(-84deg);opacity:0}60%{opacity:1}to{transform:perspective(1200px) rotateX(0);opacity:1}}
+  @keyframes rise{from{transform:translateY(16px) scale(.98);opacity:0}to{transform:none;opacity:1}}
+  .bigcard input.edit{width:100%;background:transparent;border:none;outline:none;color:var(--ink);
+    font-family:inherit;font-size:27px;font-weight:800;line-height:1.15;}
+  .bigcard .lbl{font-size:11px;font-weight:800;color:var(--faint);letter-spacing:.6px;margin:18px 0 6px;}
+  .bigcard textarea.edit{flex:0 0 auto;width:100%;min-height:120px;max-height:34vh;overflow:auto;background:transparent;border:none;outline:none;color:var(--ink);
+    font-family:inherit;font-size:16px;line-height:1.45;resize:none;}
+  .bigcard .doneBtn{margin-top:16px;}
+
+  /* ---- add sheet ---- */
+  #scrim{position:fixed;inset:0;z-index:29;background:rgba(0,0,0,.5);display:none;}
+  #scrim.show{display:block;}
+  #addSheet{position:fixed;left:0;right:0;bottom:0;z-index:30;max-width:520px;margin:0 auto;display:none;
+    border-radius:28px 28px 0 0;padding:22px 22px calc(22px + var(--safe-b));
+    background:linear-gradient(160deg,#241A1E,#171114);border:1px solid var(--cardEdge);border-bottom:none;}
+  #addSheet.show{display:block;animation:rise .26s ease;}
+  .sheetTop{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;}
+  .sheetTop h3{margin:0;font-size:22px;font-weight:800;}
+  .field{border-radius:16px;padding:14px;margin-bottom:12px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.07);}
+  .field input,.field textarea{width:100%;background:transparent;border:none;outline:none;color:var(--ink);font-family:inherit;font-size:16px;resize:none;}
+  .field input{font-weight:600;font-size:18px;}
+  .primary{width:100%;height:52px;border:none;border-radius:16px;background:var(--amber);color:#fff;font-size:16px;font-weight:800;cursor:pointer;}
+  .primary:disabled{opacity:.4;}
+
+  /* ---- delete confirm ---- */
+  #confirm{position:fixed;inset:0;z-index:40;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);padding:30px;}
+  #confirm.show{display:flex;}
+  .dialog{width:100%;max-width:360px;border-radius:22px;padding:22px;text-align:center;
+    background:linear-gradient(160deg,#241A1E,#171114);border:1px solid var(--cardEdge);animation:rise .2s ease;}
+  .dialog h4{margin:0 0 6px;font-size:17px;font-weight:800;}
+  .dialog p{margin:0 0 18px;font-size:13px;color:var(--muted);}
+  .dialog .row{display:flex;gap:10px;}
+  .dialog button{flex:1;height:46px;border-radius:14px;border:none;font-size:15px;font-weight:800;cursor:pointer;}
+  .btnCancel{background:rgba(255,255,255,.08);color:var(--ink);}
+  .btnDelete{background:#ED3A56;color:#fff;}
+</style>
+</head>
+<body>
+<canvas id="cbg"></canvas>
+
+<div id="app">
+  <div id="focusView" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="header"><div class="sub" id="focusSub">A calm place to work.</div><div class="title">Focus</div></div>
+    <div id="focusStack"></div>
+  </div>
+  <div id="boardView" style="display:none;flex-direction:column;flex:1;overflow:hidden;">
+    <div class="header"><div class="sub" id="boardSub"></div><div class="title">Board</div></div>
+    <div id="boardList"></div>
+  </div>
+</div>
+
+<nav id="tabbar">
+  <div class="tabs">
+    <button class="tab on" data-tab="focus" onclick="setTab('focus')">
+      <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l1.9 5.8L20 9l-5 4 1.5 6-4.5-3.3L7.5 19 9 13 4 9l6.1-1.2z"/></svg>Focus</button>
+    <button class="tab" data-tab="board" onclick="setTab('board')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/></svg>Board</button>
+  </div>
+  <button class="addbtn" onclick="openAdd()">+</button>
+</nav>
+
+<!-- big detail card -->
+<div class="overlay" id="detail">
+  <div id="detailScrim" onclick="closeDetail()"></div>
+  <div class="bigwrap"><div class="bigcard card" id="bigcard"></div></div>
+</div>
+
+<!-- delete confirm -->
+<div id="confirm">
+  <div class="dialog">
+    <h4>Delete this task?</h4>
+    <p id="confirmMsg"></p>
+    <div class="row"><button class="btnCancel" onclick="closeConfirm()">Cancel</button><button class="btnDelete" onclick="doDelete()">Delete</button></div>
+  </div>
+</div>
+
+<script>
+const KEY="flowfocus.v2";
+let state={tasks:[]}, tab="focus", pendingDelete=null, detailId=null, focusIndex=0, newDraftId=null;
+
+const sample=[
+  {id:uid(),title:"Sketch the onboarding flow",notes:"Warm welcome, ask the name, then drop straight into Focus.",done:false,createdAt:Date.now()-3000,completedAt:null},
+  {id:uid(),title:"Wire up the celestial background",notes:"Slow drift, faint constellation lines. Keep it subtle.",done:false,createdAt:Date.now()-2000,completedAt:null},
+  {id:uid(),title:"Ship the first build",notes:"",done:false,createdAt:Date.now()-1000,completedAt:null},
+];
+function uid(){return Math.random().toString(36).slice(2,10);}
+function find(id){return state.tasks.find(t=>t.id===id);}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.tasks){state=d;return;}}catch(e){}state={tasks:sample};}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+function ordered(){
+  const a=state.tasks.filter(t=>!t.done).sort((x,y)=>y.createdAt-x.createdAt);
+  const d=state.tasks.filter(t=>t.done).sort((x,y)=>(y.completedAt||0)-(x.completedAt||0));
+  return a.concat(d);
+}
+function esc(s){return (s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+
+function doneBtnHTML(t){
+  if(t.done) return `<button class="doneBtn reopen" onclick="event.stopPropagation();reopen('${t.id}')">Reopen</button>`;
+  return `<button class="doneBtn" onclick="event.stopPropagation();markDone('${t.id}',this)"><svg viewBox="0 0 24 24"><polyline points="4 12 10 18 20 6"/></svg>Done</button>`;
+}
+function scardHTML(t,i){
+  const tag=t.done?'<span class="tag done">✓ Done</span>':'<span class="tag focus">In focus</span>';
+  return `<div class="scard card ${t.done?'done':''}" data-id="${t.id}" data-i="${i}">
+    <div class="cardTop">${tag}<button class="xbtn" onclick="event.stopPropagation();askDelete('${t.id}')">✕</button></div>
+    <div class="grow"></div>
+    <div class="ctitle">${esc(t.title)}</div>
+    ${t.notes?`<div class="cnotes">${esc(t.notes)}</div>`:''}
+    <div class="grow"></div>
+    ${doneBtnHTML(t)}
+  </div>`;
+}
+function bcardHTML(t){
+  const tag=t.done?'<span class="tag done">✓ Done</span>':'<span></span>';
+  return `<div class="bcard card ${t.done?'isDone done':''}" data-id="${t.id}" onclick="openDetail('${t.id}')">
+    <div class="cardTop">${tag}<button class="xbtn" onclick="event.stopPropagation();askDelete('${t.id}')">✕</button></div>
+    <div class="ctitle">${esc(t.title)}</div>
+    ${t.notes?`<div class="cnotes">${esc(t.notes)}</div>`:''}
+    ${doneBtnHTML(t)}
+  </div>`;
+}
+
+function render(){renderFocus();renderBoard();}
+
+function renderFocus(){
+  const items=ordered(), active=state.tasks.filter(t=>!t.done).length;
+  document.getElementById('focusSub').textContent =
+    items.length?(active===0?'All done — nice.':`${active} task${active===1?'':'s'} · swipe to browse`):'A calm place to work.';
+  const st=document.getElementById('focusStack');
+  if(!items.length){st.innerHTML=`<div class="empty"><div class="spark">✦</div><div class="big">Nothing in focus yet.</div><div class="hint">Tap ＋ to add your first task.</div></div>`;return;}
+  focusIndex=Math.max(0,Math.min(focusIndex,items.length-1));
+  st.innerHTML=items.map((t,i)=>scardHTML(t,i)).join('');
+  layoutFocus();
+}
+function layoutFocus(){
+  document.querySelectorAll('#focusStack .scard').forEach(c=>{
+    const j=(+c.dataset.i)-focusIndex;
+    let offY,sx=1,op=1,z=30,pe='none',br=1;
+    if(j<0){offY=-46;sx=1.02;op=0;z=1;}
+    else if(j===0){offY=0;sx=1;op=1;z=30;pe='auto';}
+    else if(j===1){offY=14;sx=.955;op=1;z=29;br=.72;}
+    else if(j===2){offY=27;sx=.912;op=1;z=28;br=.52;}
+    else {offY=38;sx=.88;op=0;z=27;}
+    c.style.transform=`translateY(-50%) translateY(${offY}px) scaleX(${sx})`;
+    c.style.opacity=op;c.style.zIndex=z;c.style.pointerEvents=pe;
+    c.style.filter=br<1?`brightness(${br})`:'none';
+  });
+}
+function renderBoard(){
+  const items=ordered(), bl=document.getElementById('boardList');
+  document.getElementById('boardSub').textContent=items.length?`${items.length} task${items.length===1?'':'s'}`:'Everything, in one column.';
+  bl.innerHTML=items.length?items.map(bcardHTML).join(''):`<div class="empty"><div class="spark">▦</div><div class="big">Your board is empty.</div><div class="hint">Tap ＋ to add a task.</div></div>`;
+}
+
+function setTab(t){
+  tab=t;
+  document.getElementById('focusView').style.display=t==='focus'?'flex':'none';
+  document.getElementById('boardView').style.display=t==='board'?'flex':'none';
+  document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('on',b.dataset.tab===t));
+}
+
+/* Done: play a noticeable burst, then dissolve to the back */
+function markDone(id,btn){
+  const t=find(id); if(!t||t.done)return;
+  const card=btn.closest('.scard,.bcard,.bigcard');
+  const inBig=card&&card.classList.contains('bigcard');
+  if(!card){t.done=true;t.completedAt=Date.now();save();render();return;}
+  const title=card.querySelector('.ctitle');
+  if(title)title.classList.add('striking');   // slow line strikes across the task
+  if(navigator.vibrate)try{navigator.vibrate(14);}catch(e){}
+  setTimeout(()=>{ // once struck through, dissolve to the back
+    card.style.transition='opacity .45s ease, filter .45s ease, transform .45s ease';
+    card.style.opacity='0';card.style.filter='blur(12px)';
+    card.style.transform=(card.style.transform||'')+' scale(.94)';
+  },950);
+  setTimeout(()=>{
+    t.done=true;t.completedAt=Date.now();save();
+    if(inBig){closeDetail();} render();
+  },1420);
+}
+function reopen(id){const t=find(id);if(t){t.done=false;t.completedAt=null;save();render();if(detailId===id)fillDetail();}}
+
+/* delete */
+function askDelete(id){pendingDelete=id;const t=find(id);document.getElementById('confirmMsg').textContent=t?`“${t.title}” will be removed for good.`:'';document.getElementById('confirm').classList.add('show');}
+function closeConfirm(){document.getElementById('confirm').classList.remove('show');pendingDelete=null;}
+function doDelete(){state.tasks=state.tasks.filter(t=>t.id!==pendingDelete);save();closeConfirm();
+  if(detailId&&!find(detailId))closeDetail();render();}
+
+/* add: opens the same editor window as tapping a task, on a fresh task */
+function openAdd(){
+  const t={id:uid(),title:'',notes:'',done:false,createdAt:Date.now(),completedAt:null};
+  state.tasks.push(t);save();newDraftId=t.id;focusIndex=0;render();
+  openDetail(t.id);
+  setTimeout(()=>{const inp=document.querySelector('#bigcard input.edit');if(inp)inp.focus();},120);
+}
+
+/* big detail card (used for both editing and adding) */
+function flipCard(){const bc=document.getElementById('bigcard');bc.style.animation='none';void bc.offsetWidth;bc.style.animation='';}
+function openDetail(id){detailId=id;fillDetail();document.getElementById('detail').classList.add('show');flipCard();}
+function closeDetail(){
+  // discard an untitled just-added task
+  if(detailId&&detailId===newDraftId){const t=find(detailId);if(t&&!t.title.trim()){state.tasks=state.tasks.filter(x=>x.id!==detailId);save();}}
+  newDraftId=null;
+  document.getElementById('detail').classList.remove('show');detailId=null;render();
+}
+function fillDetail(){
+  const t=find(detailId); if(!t){closeDetail();return;}
+  document.getElementById('bigcard').innerHTML=`
+    <div class="cardTop">${t.done?'<span class="tag done">✓ Done</span>':`<span class="tag focus">${t.title.trim()?'Editing':'New task'}</span>`}
+      <button class="xbtn" onclick="askDelete('${t.id}')">✕</button></div>
+    <input class="edit" value="${esc(t.title)}" oninput="editField('${t.id}','title',this.value)" placeholder="Task title"/>
+    <div class="lbl">NOTES</div>
+    <textarea class="edit" placeholder="Add notes…" oninput="editField('${t.id}','notes',this.value)">${esc(t.notes)}</textarea>
+    <button class="doneBtn reopen" style="margin-top:14px;background:rgba(255,255,255,.05)" onclick="closeDetail()">Close</button>`;
+}
+function editField(id,f,v){const t=find(id);if(t){t[f]=v;save();
+  // update lists live but don't rebuild the open editor
+  if(tab==='focus')renderFocus();else renderBoard();}}
+
+/* swipe the front card */
+(function initDeck(){
+  const st=document.getElementById('focusStack');
+  let dragging=false,startY=0,moved=0,front=null;
+  st.addEventListener('pointerdown',e=>{
+    const f=st.querySelector(`.scard[data-i="${focusIndex}"]`);
+    if(!f||!f.contains(e.target))return;
+    if(e.target.closest('.xbtn,.doneBtn'))return;
+    dragging=true;startY=e.clientY;moved=0;front=f;f.style.transition='none';
+    try{f.setPointerCapture(e.pointerId);}catch(_){}
+  });
+  st.addEventListener('pointermove',e=>{
+    if(!dragging||!front)return;const dy=e.clientY-startY;moved=dy;
+    front.style.transform=`translateY(-50%) translateY(${dy}px) scale(${1-Math.min(Math.abs(dy)/2200,.05)}) rotate(${dy*0.006}deg)`;
+    front.style.opacity=`${Math.max(.4,1-Math.abs(dy)/560)}`;
+  });
+  function end(){
+    if(!dragging)return;dragging=false;if(front)front.style.transition='';
+    const n=ordered().length;
+    if(moved<-80&&focusIndex<n-1)focusIndex++;
+    else if(moved>80&&focusIndex>0)focusIndex--;
+    else if(Math.abs(moved)<8&&front){const id=front.dataset.id;layoutFocus();openDetail(id);front=null;return;}
+    layoutFocus();front=null;
+  }
+  st.addEventListener('pointerup',end);
+  st.addEventListener('pointercancel',end);
+  window.addEventListener('pointerup',end);
+})();
+
+/* celestial background — animated (drifting field + twinkle + shooting stars) */
+let raf;
+function makeStars(n){let s=0x9e3779b9;const r=()=>{s=(s*1664525+1013904223)>>>0;return s/4294967296;};
+  return Array.from({length:n},()=>({x:r(),y:r(),rad:.7+r()*1.8,ph:r()*6.283,damp:.02+r()*.05,dsp:.1+r()*.22,tsp:.7+r()*1.6}));}
+const STARS=makeStars(58);
+(function bg(){
+  const cv=document.getElementById('cbg'),ctx=cv.getContext('2d');
+  function resize(){const dpr=Math.min(window.devicePixelRatio||1,2);cv.width=innerWidth*dpr;cv.height=innerHeight*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);}
+  resize();addEventListener('resize',resize);
+  const start=performance.now();
+  function frame(now){
+    const t=(now-start)/1000,W=innerWidth,H=innerHeight;
+    const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#0A0709');g.addColorStop(1,'#100B0E');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+    const rg=ctx.createRadialGradient(W*.5,-20,0,W*.5,-20,460);rg.addColorStop(0,'rgba(237,58,86,.14)');rg.addColorStop(1,'rgba(237,58,86,0)');ctx.fillStyle=rg;ctx.fillRect(0,0,W,H);
+    // slow global pan so the whole field visibly drifts
+    const panX=Math.sin(t*.06)*W*.05, panY=Math.cos(t*.045)*H*.03;
+    const pts=STARS.map(s=>({x:(s.x+Math.sin(t*s.dsp+s.ph)*s.damp)*W+panX, y:(s.y+Math.cos(t*s.dsp*.8+s.ph)*s.damp)*H+panY, s}));
+    const md=Math.min(W,H)*.22;ctx.strokeStyle='rgba(255,255,255,.06)';ctx.lineWidth=.7;ctx.beginPath();
+    for(let i=0;i<pts.length;i++)for(let j=i+1;j<pts.length;j++){const dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y;if(Math.hypot(dx,dy)<md){ctx.moveTo(pts[i].x,pts[i].y);ctx.lineTo(pts[j].x,pts[j].y);}}
+    ctx.stroke();
+    for(const p of pts){const tw=.5+.5*Math.sin(t*p.s.tsp+p.s.ph);ctx.fillStyle=`rgba(255,255,255,${.12+.32*tw})`;ctx.beginPath();ctx.arc(p.x,p.y,p.s.rad,0,6.2832);ctx.fill();}
+    // a shooting star every ~6s
+    const P=6,k=Math.floor(t/P),lt=t-k*P;
+    if(lt<1){
+      const p=lt,a=Math.sin(p*Math.PI);
+      const rx=Math.sin(k*12.9898)*.5+.5, ry=Math.sin(k*4.1414)*.5+.5;
+      const cx=(.05+rx*.5)*W+p*W*.55, cy=(.05+ry*.3)*H+p*H*.32, len=150;
+      const tx=cx-len*.86, ty=cy-len*.5;
+      const gr=ctx.createLinearGradient(cx,cy,tx,ty);
+      gr.addColorStop(0,`rgba(255,225,205,${.85*a})`);gr.addColorStop(1,'rgba(255,225,205,0)');
+      ctx.strokeStyle=gr;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(tx,ty);ctx.stroke();
+      ctx.fillStyle=`rgba(255,245,235,${a})`;ctx.beginPath();ctx.arc(cx,cy,2,0,6.2832);ctx.fill();
+    }
+    raf=requestAnimationFrame(frame);
+  }
+  raf=requestAnimationFrame(frame);
+  // resume cleanly if the tab was backgrounded
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden){cancelAnimationFrame(raf);raf=requestAnimationFrame(frame);}});
+})();
+
+load();render();setTab('focus');
+</script>
+</body>
+</html>
