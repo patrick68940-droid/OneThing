@@ -69,7 +69,7 @@
 
   .ctitle{font-weight:800;color:var(--ink);line-height:1.15;}
   .cnotes{color:var(--muted);}
-  .scard .ctitle{font-size:26px;margin-top:14px;}
+  .scard .ctitle{font-size:32px;margin-top:14px;}
   .scard .cnotes{font-size:15px;margin-top:10px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;}
   .done .ctitle{text-decoration:line-through;text-decoration-color:var(--faint);color:var(--muted);}
   .grow{flex:1 1 auto;min-height:8px;}
@@ -110,12 +110,15 @@
   .addbtn{width:52px;height:52px;border-radius:50%;border:none;cursor:pointer;background:var(--amber);color:#fff;
     font-size:26px;font-weight:300;box-shadow:0 8px 20px rgba(237,58,86,.5);display:grid;place-items:center;line-height:1;}
 
-  /* ---- Done: slow strike-through across the task ---- */
-  .ctitle.striking{position:relative;}
-  .ctitle.striking::after{content:"";position:absolute;left:-2px;right:-2px;top:53%;height:3px;border-radius:2px;
-    background:var(--amberB);box-shadow:0 0 10px rgba(255,149,57,.6);
-    transform:scaleX(0);transform-origin:left center;animation:strike .85s cubic-bezier(.4,0,.2,1) forwards;}
-  @keyframes strike{to{transform:scaleX(1)}}
+  /* ---- Done: hand-drawn pen-stroke strike-out ---- */
+  .ctitle .sw{transition:color .26s ease, opacity .26s ease, transform .26s ease;}
+  .ctitle .sw.struck{color:var(--faint);opacity:.82;transform:translateY(1px);}
+  .strike-svg{position:absolute;pointer-events:none;z-index:2;overflow:visible;}
+  .strike-tip{position:absolute;width:22px;height:22px;margin:-11px 0 0 -11px;border-radius:50%;z-index:3;pointer-events:none;
+    background:radial-gradient(circle,#fff 0%,rgba(255,214,170,.92) 28%,rgba(255,140,80,.45) 58%,transparent 74%);
+    filter:drop-shadow(0 0 9px rgba(255,150,90,.95));}
+  .strike-p{position:absolute;width:5px;height:5px;border-radius:50%;z-index:3;pointer-events:none;
+    background:radial-gradient(circle,#FFD9B0,#FF7A45);box-shadow:0 0 6px rgba(255,150,90,.8);}
 
   /* ---- big detail card (almost full-screen) ---- */
   .overlay{position:fixed;inset:0;z-index:20;display:none;}
@@ -127,7 +130,7 @@
   @keyframes flipIn{from{transform:perspective(1200px) rotateX(-84deg);opacity:0}60%{opacity:1}to{transform:perspective(1200px) rotateX(0);opacity:1}}
   @keyframes rise{from{transform:translateY(16px) scale(.98);opacity:0}to{transform:none;opacity:1}}
   .bigcard input.edit{width:100%;background:transparent;border:none;outline:none;color:var(--ink);
-    font-family:inherit;font-size:27px;font-weight:800;line-height:1.15;}
+    font-family:inherit;font-size:32px;font-weight:800;line-height:1.15;}
   .bigcard .lbl{font-size:11px;font-weight:800;color:var(--faint);letter-spacing:.6px;margin:18px 0 6px;}
   .bigcard textarea.edit{flex:0 0 auto;width:100%;min-height:120px;max-height:34vh;overflow:auto;background:transparent;border:none;outline:none;color:var(--ink);
     font-family:inherit;font-size:16px;line-height:1.45;resize:none;}
@@ -288,20 +291,135 @@ function setTab(t){
 function markDone(id,btn){
   const t=find(id); if(!t||t.done)return;
   const card=btn.closest('.scard,.bcard,.bigcard');
-  const inBig=card&&card.classList.contains('bigcard');
-  if(!card){t.done=true;t.completedAt=Date.now();save();render();return;}
-  const title=card.querySelector('.ctitle');
-  if(title)title.classList.add('striking');   // slow line strikes across the task
+  const finish=()=>{t.done=true;t.completedAt=Date.now();save();
+    if(card&&card.classList.contains('bigcard'))closeDetail();render();};
+  if(!card){finish();return;}
+  btn.style.pointerEvents='none';btn.style.opacity='.55';
   if(navigator.vibrate)try{navigator.vibrate(14);}catch(e){}
-  setTimeout(()=>{ // once struck through, dissolve to the back
-    card.style.transition='opacity .45s ease, filter .45s ease, transform .45s ease';
+  strikeOut(card.querySelector('.ctitle')).then(()=>{
+    card.style.transition='opacity .5s ease, filter .5s ease, transform .5s ease';
     card.style.opacity='0';card.style.filter='blur(12px)';
     card.style.transform=(card.style.transform||'')+' scale(.94)';
-  },950);
-  setTimeout(()=>{
-    t.done=true;t.completedAt=Date.now();save();
-    if(inBig){closeDetail();} render();
-  },1420);
+    setTimeout(finish,500);
+  });
+}
+
+/* A hand-drawn strike: a slightly wavy pen stroke sweeps across each line of the
+   title behind a glowing tip; every word dims the instant the tip passes it,
+   sparks kick up where the stroke lands, the ink settles, the card dips under
+   the pen's weight. Resolves when the ink is dry. */
+function strikeOut(title){
+  return new Promise(res=>{
+    try{
+      if(!title||!title.textContent.trim()){res();return;}
+      // split the title into word spans so each word can fade as the tip passes
+      const text=title.textContent;
+      title.textContent='';
+      const spans=[];
+      for(const w of text.split(/(\s+)/)){
+        if(!w)continue;
+        if(/^\s+$/.test(w)){title.appendChild(document.createTextNode(w));continue;}
+        const s=document.createElement('span');s.className='sw';s.textContent=w;
+        title.appendChild(s);spans.push(s);
+      }
+      if(getComputedStyle(title).position==='static')title.style.position='relative';
+      // group words into rendered lines
+      const lines=[];
+      for(const s of spans){
+        let L=lines.find(l=>Math.abs(l.top-s.offsetTop)<5);
+        if(!L){L={top:s.offsetTop,words:[],left:1e9,right:-1e9,h:s.offsetHeight};lines.push(L);}
+        L.words.push(s);
+        L.left=Math.min(L.left,s.offsetLeft);
+        L.right=Math.max(L.right,s.offsetLeft+s.offsetWidth);
+        L.h=Math.max(L.h,s.offsetHeight);
+      }
+      lines.sort((a,b)=>a.top-b.top);
+      if(!lines.length){res();return;}
+      if(matchMedia('(prefers-reduced-motion: reduce)').matches){
+        spans.forEach(s=>s.classList.add('struck'));setTimeout(res,300);return;
+      }
+      const PAD=30,NS='http://www.w3.org/2000/svg';
+      const svg=document.createElementNS(NS,'svg');
+      svg.setAttribute('class','strike-svg');
+      svg.setAttribute('width',title.offsetWidth+PAD*2);
+      svg.setAttribute('height',title.offsetHeight+PAD*2);
+      svg.style.left=-PAD+'px';svg.style.top=-PAD+'px';
+      const gid='sg'+uid();
+      svg.innerHTML=`<defs><linearGradient id="${gid}" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0" stop-color="#ED3A56"/><stop offset=".55" stop-color="#FF7A45"/>
+        <stop offset="1" stop-color="#FF9539"/></linearGradient></defs>`;
+      title.appendChild(svg);
+      const tip=document.createElement('div');tip.className='strike-tip';tip.style.opacity='0';title.appendChild(tip);
+      // one wavy path per line, like a real pen stroke (slight tilt, end flick)
+      const jobs=lines.map(L=>{
+        const x0=L.left-7+PAD,x1=L.right+11+PAD,y=L.top+L.h*.56+PAD,tilt=-(x1-x0)*.012;
+        let d=`M ${x0} ${y+1.5}`,px=x0,py=y+1.5;
+        for(let i=1;i<=4;i++){
+          const nx=x0+(x1-x0)*i/4;
+          const ny=y+tilt*i/4+(i===4?-2.2:(i%2?1.4:-1.2))+(Math.random()*1.6-.8);
+          d+=` Q ${((px+nx)/2+(Math.random()*3-1.5)).toFixed(1)} ${((py+ny)/2+(i%2?2:-2)).toFixed(1)} ${nx.toFixed(1)} ${ny.toFixed(1)}`;
+          px=nx;py=ny;
+        }
+        const mkPath=(w,extra)=>{const p=document.createElementNS(NS,'path');
+          p.setAttribute('d',d);p.setAttribute('fill','none');p.setAttribute('stroke',`url(#${gid})`);
+          p.setAttribute('stroke-width',w);p.setAttribute('stroke-linecap','round');
+          Object.assign(p.style,extra);svg.appendChild(p);return p;};
+        const glow=mkPath('10',{filter:'blur(6px)',opacity:'.55'});
+        const ink=mkPath('4.4',{});
+        const len=ink.getTotalLength();
+        [glow,ink].forEach(p=>{p.style.strokeDasharray=len;p.style.strokeDashoffset=len;});
+        return {glow,ink,len,dur:Math.max(460,Math.min(760,(x1-x0)*1.15)),words:L.words.slice()};
+      });
+      let finished=false;
+      const finish=()=>{if(finished)return;finished=true;
+        jobs.forEach(j=>{j.ink.style.strokeDashoffset=0;j.glow.style.strokeDashoffset=0;
+          j.words.forEach(w=>w.classList.add('struck'));});
+        tip.style.opacity='0';res();};
+      // watchdog: never leave the task stuck if frames stall
+      setTimeout(finish,jobs.reduce((a,j)=>a+j.dur,0)+jobs.length*90+700);
+      const ease=t=>t<.5?16*t*t*t*t*t:1-Math.pow(-2*t+2,5)/2;
+      const settle=(job,pt)=>{
+        job.ink.style.transition='stroke-width .3s ease';job.ink.style.strokeWidth='3.2';
+        job.glow.style.transition='opacity .35s ease';job.glow.style.opacity='.28';
+        for(let i=0;i<5;i++){
+          const p=document.createElement('div');p.className='strike-p';
+          p.style.left=pt.x-PAD+'px';p.style.top=pt.y-PAD+'px';title.appendChild(p);
+          const a=(-25-Math.random()*50)*Math.PI/180,v=14+Math.random()*22;
+          p.animate([{transform:'translate(0,0) scale(1)',opacity:1},
+            {transform:`translate(${Math.cos(a)*v}px,${Math.sin(a)*v}px) scale(.2)`,opacity:0}],
+            {duration:380+Math.random()*180,easing:'cubic-bezier(.2,.7,.3,1)',fill:'forwards'});
+        }};
+      let li=0,t0=performance.now();
+      const frame=now=>{
+        if(finished)return;
+        const job=jobs[li];
+        const t=Math.max(0,Math.min(1,(now-t0)/job.dur));
+        const e=ease(t),off=job.len*(1-e);
+        job.ink.style.strokeDashoffset=off;job.glow.style.strokeDashoffset=off;
+        const pt=job.ink.getPointAtLength(job.len*e);
+        tip.style.opacity=t>.02&&t<.99?'1':'0';
+        tip.style.left=pt.x-PAD+'px';tip.style.top=pt.y-PAD+'px';
+        for(const w of job.words)
+          if(!w.classList.contains('struck')&&pt.x-PAD>=w.offsetLeft+w.offsetWidth*.45)w.classList.add('struck');
+        if(t>=1){
+          job.words.forEach(w=>w.classList.add('struck'));
+          settle(job,pt);
+          li++;
+          if(li>=jobs.length){
+            tip.style.opacity='0';
+            try{title.closest('.scard,.bcard,.bigcard').animate(
+              {transform:['translateY(0px)','translateY(2px)','translateY(0px)']},
+              {duration:300,easing:'ease-out',composite:'add'});}catch(e){}
+            setTimeout(finish,320);
+            return;
+          }
+          t0=now+90; // brief pen lift between lines
+        }
+        requestAnimationFrame(frame);
+      };
+      requestAnimationFrame(frame);
+    }catch(e){res();}
+  });
 }
 function reopen(id){const t=find(id);if(t){t.done=false;t.completedAt=null;save();render();if(detailId===id)fillDetail();}}
 
