@@ -90,6 +90,10 @@
   .bcard .cnotes{font-size:13px;margin-top:8px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;}
   .bcard .doneBtn{margin-top:12px;}
   .isDone{opacity:.55;}
+  /* drag to reorder — the whole card is the handle */
+  .bcard:not(.isDone){cursor:grab;}
+  .bcard.dragging{z-index:50;box-shadow:0 24px 50px rgba(0,0,0,.65);cursor:grabbing;opacity:.97;}
+  .bcard.shifted{transition:transform .22s ease;}
 
   .empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;padding-bottom:140px;text-align:center;}
   .empty .spark{font-size:34px;color:var(--amberB);}
@@ -214,12 +218,28 @@ const sample=[
 ];
 function uid(){return Math.random().toString(36).slice(2,10);}
 function find(id){return state.tasks.find(t=>t.id===id);}
-function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.tasks){state=d;return;}}catch(e){}state={tasks:sample};}
+function load(){try{const d=JSON.parse(localStorage.getItem(KEY));if(d&&d.tasks){state=d;}else{state={tasks:sample};}}catch(e){state={tasks:sample};}migrateOrd();}
 function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+/* manual order: lower ord = higher in the list; older data gets ords assigned once */
+function migrateOrd(){
+  const act=state.tasks.filter(t=>!t.done);
+  if(act.some(t=>typeof t.ord!=='number'))
+    act.sort((a,b)=>b.createdAt-a.createdAt).forEach((t,i)=>t.ord=i);
+}
+function topOrd(){return Math.min(0,...state.tasks.filter(t=>!t.done).map(t=>t.ord??0))-1;}
 function ordered(){
-  const a=state.tasks.filter(t=>!t.done).sort((x,y)=>y.createdAt-x.createdAt);
+  const a=state.tasks.filter(t=>!t.done).sort((x,y)=>(x.ord??0)-(y.ord??0));
   const d=state.tasks.filter(t=>t.done).sort((x,y)=>(y.completedAt||0)-(x.completedAt||0));
   return a.concat(d);
+}
+function reorderActive(id,to){
+  const act=state.tasks.filter(t=>!t.done).sort((a,b)=>(a.ord??0)-(b.ord??0));
+  const from=act.findIndex(t=>t.id===id);
+  if(from<0)return;
+  const [m]=act.splice(from,1);
+  act.splice(Math.max(0,Math.min(to,act.length)),0,m);
+  act.forEach((t,i)=>t.ord=i);
+  save();render();
 }
 function esc(s){return (s||"").replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 
@@ -421,7 +441,7 @@ function strikeOut(title){
     }catch(e){res();}
   });
 }
-function reopen(id){const t=find(id);if(t){t.done=false;t.completedAt=null;save();render();if(detailId===id)fillDetail();}}
+function reopen(id){const t=find(id);if(t){t.done=false;t.completedAt=null;t.ord=topOrd();save();render();if(detailId===id)fillDetail();}}
 
 /* delete */
 function askDelete(id){pendingDelete=id;const t=find(id);document.getElementById('confirmMsg').textContent=t?`“${t.title}” will be removed for good.`:'';document.getElementById('confirm').classList.add('show');}
@@ -431,7 +451,7 @@ function doDelete(){state.tasks=state.tasks.filter(t=>t.id!==pendingDelete);save
 
 /* add: opens the same editor window as tapping a task, on a fresh task */
 function openAdd(){
-  const t={id:uid(),title:'',notes:'',done:false,createdAt:Date.now(),completedAt:null};
+  const t={id:uid(),title:'',notes:'',done:false,createdAt:Date.now(),completedAt:null,ord:topOrd()};
   state.tasks.push(t);save();newDraftId=t.id;focusIndex=0;render();
   openDetail(t.id);
   setTimeout(()=>{const inp=document.querySelector('#bigcard input.edit');if(inp)inp.focus();},120);
@@ -439,7 +459,9 @@ function openAdd(){
 
 /* big detail card (used for both editing and adding) */
 function flipCard(){const bc=document.getElementById('bigcard');bc.style.animation='none';void bc.offsetWidth;bc.style.animation='';}
-function openDetail(id){detailId=id;fillDetail();document.getElementById('detail').classList.add('show');flipCard();}
+function openDetail(id){
+  if(window.__dragEndAt&&Date.now()-window.__dragEndAt<350)return; // tap that ended a drag
+  detailId=id;fillDetail();document.getElementById('detail').classList.add('show');flipCard();}
 function closeDetail(){
   // discard an untitled just-added task
   if(detailId&&detailId===newDraftId){const t=find(detailId);if(t&&!t.title.trim()){state.tasks=state.tasks.filter(x=>x.id!==detailId);save();}}
@@ -487,6 +509,79 @@ function editField(id,f,v){const t=find(id);if(t){t[f]=v;save();
   st.addEventListener('pointerup',end);
   st.addEventListener('pointercancel',end);
   window.addEventListener('pointerup',end);
+})();
+
+/* drag to reorder (board) — grab the grip to drag instantly, or long-press the
+   card. The new order is saved to each task, so Focus deals the same sequence. */
+(function initReorder(){
+  const list=document.getElementById('boardList');
+  let drag=null,lpTimer=null,sx=0,sy=0,pid=null;
+  const prevent=e=>e.preventDefault();
+
+  function lift(card,e){
+    clearTimeout(lpTimer);lpTimer=null;
+    const act=[...list.querySelectorAll('.bcard:not(.isDone)')];
+    const idx=act.indexOf(card);
+    if(idx<0){drag=null;return;}
+    drag={card,idx,to:idx,h:card.offsetHeight+14,
+      others:act.filter(c=>c!==card).map(c=>{const r=c.getBoundingClientRect();return{el:c,mid:r.top+r.height/2};}),
+      startY:e.clientY,lr:list.getBoundingClientRect(),startScroll:list.scrollTop};
+    card.classList.add('dragging');
+    try{card.setPointerCapture(pid);}catch(_){}
+    document.addEventListener('touchmove',prevent,{passive:false});
+    if(navigator.vibrate)try{navigator.vibrate(10);}catch(_){}
+  }
+
+  list.addEventListener('pointerdown',e=>{
+    const card=e.target.closest('.bcard');
+    if(!card||card.classList.contains('isDone'))return;
+    if(e.target.closest('.xbtn,.doneBtn'))return;
+    sx=e.clientX;sy=e.clientY;pid=e.pointerId;
+    drag={pending:card,e};
+    // touch: hold briefly to pick up (so a quick swipe still scrolls the list)
+    if(e.pointerType!=='mouse')lpTimer=setTimeout(()=>{if(drag&&drag.pending)lift(drag.pending,drag.e);},250);
+  });
+
+  list.addEventListener('pointermove',e=>{
+    if(!drag)return;
+    if(drag.pending){
+      const moved=Math.hypot(e.clientX-sx,e.clientY-sy);
+      if(lpTimer){if(moved>8){clearTimeout(lpTimer);lpTimer=null;drag=null;}return;} // touch: became a scroll
+      if(moved>6)lift(drag.pending,e);                                              // mouse: drag on move
+      if(!drag||drag.pending)return;
+    }
+    const d=drag;
+    const sd=list.scrollTop-d.startScroll;
+    const dy=(e.clientY-d.startY)+sd;
+    d.card.style.transform=`translateY(${dy}px) scale(1.02)`;
+    let to=0;for(const o of d.others)if(e.clientY>o.mid-sd)to++;
+    d.to=to;
+    d.others.forEach((o,i)=>{
+      const slot=i>=d.idx?i+1:i;
+      let off=0;
+      if(d.idx<to){if(slot>d.idx&&slot<=to)off=-d.h;}
+      else if(d.idx>to){if(slot>=to&&slot<d.idx)off=d.h;}
+      o.el.classList.add('shifted');
+      o.el.style.transform=off?`translateY(${off}px)`:'';
+    });
+    const m=70,rate=14;
+    if(e.clientY<d.lr.top+m)list.scrollTop-=rate;
+    else if(e.clientY>d.lr.bottom-m)list.scrollTop+=rate;
+  });
+
+  function end(commit){
+    clearTimeout(lpTimer);lpTimer=null;
+    document.removeEventListener('touchmove',prevent);
+    if(!drag)return;
+    if(drag.pending){drag=null;return;}
+    const d=drag;drag=null;
+    window.__dragEndAt=Date.now();
+    if(commit&&d.to!==d.idx)reorderActive(d.card.dataset.id,d.to);
+    else render();
+  }
+  list.addEventListener('pointerup',()=>end(true));
+  list.addEventListener('pointercancel',()=>end(false));
+  window.addEventListener('pointerup',()=>end(true));
 })();
 
 /* celestial background — animated (drifting field + twinkle + shooting stars) */
